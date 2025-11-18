@@ -1,47 +1,484 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ИИ Тренер</title>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- MediaPipe Dependencies -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <!-- Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-  <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #000;
-      color: white;
-      overflow: hidden; /* Prevent scrolling */
-    }
-    /* Mirror the canvas for natural interaction */
-    .mirror-scale {
-      transform: scaleX(-1);
-    }
-    /* Hide scrollbar for Webkit */
-    ::-webkit-scrollbar {
-      display: none;
-    }
-  </style>
-
-<link rel="stylesheet" href="/index.css">
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/"
-  }
-}
-</script>
-  <script type="module" crossorigin src="/assets/index--aRUhAG5.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Тренер Отжиманий</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+            color: white;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* Зеркальное отражение канваса для естественного восприятия */
+        .mirror-scale {
+            transform: scaleX(-1);
+        }
+        /* Скрытие скроллбара */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+        /* Анимации */
+        .fade-enter { opacity: 0; transform: translateY(-10px); }
+        .fade-enter-active { opacity: 1; transform: translateY(0); transition: opacity 300ms, transform 300ms; }
+        .fade-exit { opacity: 1; transform: translateY(0); }
+        .fade-exit-active { opacity: 0; transform: translateY(-10px); transition: opacity 300ms, transform 300ms; }
+    </style>
 </head>
-<body>
-  <div id="root" class="h-screen w-screen relative"></div>
+<body class="bg-gray-900 h-screen w-screen relative flex flex-col items-center justify-center">
+
+    <div id="loading-screen" class="absolute inset-0 flex items-center justify-center z-50 bg-black transition-opacity duration-500">
+        <div class="flex flex-col items-center animate-pulse">
+            <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-lg font-semibold text-gray-300">Загрузка модели...</p>
+            <p class="text-sm text-gray-500 mt-2">Разрешите доступ к камере</p>
+        </div>
+    </div>
+
+    <div class="relative w-full h-full flex items-center justify-center overflow-hidden">
+        <video id="input-video" class="absolute w-full h-full object-cover opacity-0 pointer-events-none" playsinline muted autoplay></video>
+        <canvas id="output-canvas" class="absolute w-full h-full object-cover mirror-scale"></canvas>
+        <div class="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/80 pointer-events-none"></div>
+    </div>
+
+    <div class="absolute top-0 left-0 right-0 p-4 z-10 flex flex-col space-y-2 pointer-events-none">
+        <div class="flex justify-between items-center">
+            <div class="flex flex-col">
+                <h1 class="text-xl font-bold tracking-tight text-white drop-shadow-md">Тренер Отжиманий</h1>
+                <span class="text-xs text-blue-300 uppercase tracking-widest font-semibold">AI Модуль</span>
+            </div>
+            <div class="bg-white/10 backdrop-blur-md border border-white/10 px-3 py-1 rounded-full">
+                <span class="font-mono text-sm text-white/90"><span id="angle-display">0</span>° Локоть</span>
+            </div>
+        </div>
+
+        <div class="w-full bg-gray-700/50 h-3 rounded-full overflow-hidden backdrop-blur-sm border border-white/5 relative">
+            <div id="progress-fill" class="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ease-out" style="width: 0%"></div>
+            <div class="absolute inset-0 flex items-center justify-center">
+                <span id="goal-text" class="text-[10px] font-bold text-white drop-shadow-md tracking-wider">
+                   ЦЕЛЬ НА ДЕНЬ: 0 / 50
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div id="achievement-toast" class="hidden absolute top-24 left-0 right-0 flex justify-center z-50 transition-all duration-500 transform translate-y-0 opacity-0">
+        <div class="bg-yellow-500/90 backdrop-blur-md text-black px-6 py-3 rounded-xl shadow-xl border-2 border-yellow-300 flex items-center space-x-3 animate-bounce">
+            <span id="ach-icon" class="text-3xl">🏆</span>
+            <div class="flex flex-col">
+                <span class="text-xs font-bold uppercase tracking-widest opacity-80">Новое достижение!</span>
+                <span id="ach-title" class="font-bold text-lg leading-none">Название</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="absolute bottom-0 w-full px-6 py-8 z-20 flex flex-col items-center space-y-6 pointer-events-auto">
+        
+        <div id="feedback-pill" class="px-6 py-2 rounded-full backdrop-blur-md border transition-all duration-300 ease-out transform bg-white/10 border-white/10 text-gray-200">
+            <p id="feedback-text" class="font-semibold tracking-wide uppercase text-sm">Готов</p>
+        </div>
+
+        <div class="flex items-center justify-between w-full max-w-md mx-auto">
+            <button onclick="resetCounter()" class="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md flex items-center justify-center transition-colors active:scale-95 text-white/70">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                </svg>
+            </button>
+
+            <div class="flex flex-col items-center">
+                <span id="count-display" class="text-8xl font-black text-white leading-none drop-shadow-2xl font-sans">0</span>
+                <span class="text-sm text-white/50 font-medium uppercase tracking-widest mt-1">Сессия</span>
+            </div>
+
+            <button onclick="toggleModal('awards-modal')" class="w-12 h-12 rounded-full bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/30 backdrop-blur-md flex items-center justify-center transition-colors active:scale-95 text-yellow-400">
+                <span class="text-xl">🏆</span>
+            </button>
+        </div>
+
+        <button onclick="toggleModal('goal-modal')" class="text-xs text-white/50 hover:text-white uppercase tracking-widest underline decoration-white/30 underline-offset-4">
+            Настроить цель
+        </button>
+    </div>
+
+    <div id="goal-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+        <div class="bg-gray-800 w-full max-w-sm rounded-2xl p-6 border border-gray-700 shadow-2xl">
+            <h2 class="text-xl font-bold mb-4 text-center">Цель на день</h2>
+            <div class="grid grid-cols-3 gap-2 mb-4">
+                <button onclick="setGoal(20)" class="goal-btn py-3 rounded-lg font-bold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600" data-val="20">20</button>
+                <button onclick="setGoal(50)" class="goal-btn py-3 rounded-lg font-bold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600" data-val="50">50</button>
+                <button onclick="setGoal(100)" class="goal-btn py-3 rounded-lg font-bold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600" data-val="100">100</button>
+            </div>
+            <div class="flex items-center bg-gray-700 rounded-lg px-4 py-2 mb-6">
+                <span class="text-gray-400 mr-2">Своя цель:</span>
+                <input id="custom-goal-input" type="number" class="bg-transparent w-full text-white font-bold focus:outline-none" placeholder="0" onblur="setGoal(this.value)">
+            </div>
+            <button onclick="toggleModal('goal-modal')" class="w-full py-3 bg-gray-600 rounded-lg font-semibold hover:bg-gray-500 transition-colors">Закрыть</button>
+        </div>
+    </div>
+
+    <div id="awards-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-6">
+        <div class="bg-gray-900 w-full max-w-md rounded-2xl p-6 border border-gray-800 shadow-2xl max-h-[80vh] flex flex-col">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Мои Награды</h2>
+                <div class="text-right">
+                    <div class="text-xs text-gray-500 uppercase">Всего отжиманий</div>
+                    <div id="total-reps-display" class="text-xl font-mono font-bold text-blue-400">0</div>
+                </div>
+            </div>
+            <div id="achievements-list" class="flex-1 overflow-y-auto space-y-3 pr-2">
+                </div>
+            <button onclick="toggleModal('awards-modal')" class="w-full mt-6 py-3 bg-white/10 rounded-lg font-semibold hover:bg-white/20 transition-colors">Вернуться</button>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIG & CONSTANTS ---
+        const ACHIEVEMENTS = [
+            { id: 'first_step', title: 'Первый шаг', description: 'Сделайте 1 отжимание', threshold: 1, icon: '🌱' },
+            { id: 'warmup', title: 'Разминка', description: '10 отжиманий всего', threshold: 10, icon: '🔥' },
+            { id: 'strong', title: 'Сила', description: '50 отжиманий всего', threshold: 50, icon: '💪' },
+            { id: 'century', title: 'Центурион', description: '100 отжиманий всего', threshold: 100, icon: '💯' },
+            { id: 'spartan', title: 'Спартанец', description: '300 отжиманий всего', threshold: 300, icon: '🛡️' },
+            { id: 'master', title: 'Мастер', description: '500 отжиманий всего', threshold: 500, icon: '👑' },
+            { id: 'legend', title: 'Легенда', description: '1000 отжиманий всего', threshold: 1000, icon: '🏆' },
+        ];
+
+        // --- STATE ---
+        let state = {
+            count: 0,
+            dailyGoal: 50,
+            dailyReps: 0,
+            totalLifetimeReps: 0,
+            unlockedAchievements: [],
+            cameraActive: false,
+            feedback: "Готов",
+            angle: 0
+        };
+
+        // Logic vars
+        let countLogic = 0;
+        let stageLogic = null; // "up" | "down" | null
+
+        // DOM Elements
+        const els = {
+            video: document.getElementById('input-video'),
+            canvas: document.getElementById('output-canvas'),
+            angleDisplay: document.getElementById('angle-display'),
+            progressFill: document.getElementById('progress-fill'),
+            goalText: document.getElementById('goal-text'),
+            feedbackPill: document.getElementById('feedback-pill'),
+            feedbackText: document.getElementById('feedback-text'),
+            countDisplay: document.getElementById('count-display'),
+            totalRepsDisplay: document.getElementById('total-reps-display'),
+            achievementsList: document.getElementById('achievements-list'),
+            loadingScreen: document.getElementById('loading-screen'),
+            customGoalInput: document.getElementById('custom-goal-input'),
+            toast: document.getElementById('achievement-toast'),
+            toastIcon: document.getElementById('ach-icon'),
+            toastTitle: document.getElementById('ach-title')
+        };
+
+        const ctx = els.canvas.getContext('2d');
+
+        // --- INITIALIZATION ---
+        function init() {
+            loadStorage();
+            renderUI();
+            startCamera();
+        }
+
+        function loadStorage() {
+            state.totalLifetimeReps = parseInt(localStorage.getItem('totalLifetimeReps') || '0');
+            state.dailyGoal = parseInt(localStorage.getItem('dailyGoal') || '50');
+            state.dailyReps = parseInt(localStorage.getItem('dailyReps') || '0');
+            state.unlockedAchievements = JSON.parse(localStorage.getItem('unlockedAchievements') || '[]');
+
+            const savedDate = localStorage.getItem('lastDate');
+            const today = new Date().toDateString();
+
+            if (savedDate !== today) {
+                state.dailyReps = 0;
+                localStorage.setItem('lastDate', today);
+                localStorage.setItem('dailyReps', '0');
+            }
+            
+            // Set input default
+            els.customGoalInput.value = state.dailyGoal;
+            updateGoalButtons();
+        }
+
+        // --- LOGIC ---
+
+        function handleRep() {
+            state.count = countLogic;
+            state.dailyReps++;
+            state.totalLifetimeReps++;
+            
+            // Save
+            localStorage.setItem('dailyReps', state.dailyReps);
+            localStorage.setItem('totalLifetimeReps', state.totalLifetimeReps);
+            localStorage.setItem('lastDate', new Date().toDateString());
+
+            checkAchievements();
+            updateProgressUI();
+            els.countDisplay.textContent = state.count;
+        }
+
+        function checkAchievements() {
+            let newUnlock = false;
+            ACHIEVEMENTS.forEach(ach => {
+                if (state.totalLifetimeReps >= ach.threshold && !state.unlockedAchievements.includes(ach.id)) {
+                    state.unlockedAchievements.push(ach.id);
+                    showToast(ach);
+                    newUnlock = true;
+                }
+            });
+
+            if (newUnlock) {
+                localStorage.setItem('unlockedAchievements', JSON.stringify(state.unlockedAchievements));
+                renderAchievementsList(); // update list if open
+            }
+        }
+
+        function showToast(ach) {
+            els.toastIcon.textContent = ach.icon;
+            els.toastTitle.textContent = ach.title;
+            
+            els.toast.classList.remove('hidden');
+            // Small timeout to allow transition
+            setTimeout(() => {
+                els.toast.classList.remove('opacity-0');
+                els.toast.classList.add('opacity-100');
+            }, 10);
+
+            setTimeout(() => {
+                els.toast.classList.remove('opacity-100');
+                els.toast.classList.add('opacity-0');
+                setTimeout(() => {
+                    els.toast.classList.add('hidden');
+                }, 500);
+            }, 4000);
+        }
+
+        // --- MEDIAPIPE & GEOMETRY ---
+
+        function calculateAngle(a, b, c) {
+            const radians = Math.atan2(c[1] - b[1], c[0] - b[0]) - Math.atan2(a[1] - b[1], a[0] - b[0]);
+            let angle = Math.abs((radians * 180.0) / Math.PI);
+            if (angle > 180.0) angle = 360 - angle;
+            return angle;
+        }
+
+        function onResults(results) {
+            // Hide loading screen on first successful frame
+            if (!state.cameraActive) {
+                state.cameraActive = true;
+                els.loadingScreen.classList.add('opacity-0');
+                setTimeout(() => els.loadingScreen.classList.add('hidden'), 500);
+            }
+
+            // Setup Canvas
+            els.canvas.width = els.video.videoWidth;
+            els.canvas.height = els.video.videoHeight;
+            
+            ctx.save();
+            ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+            ctx.drawImage(results.image, 0, 0, els.canvas.width, els.canvas.height);
+
+            if (results.poseLandmarks) {
+                // RIGHT Side: Shoulder(12), Elbow(14), Wrist(16)
+                const shoulder = results.poseLandmarks[12];
+                const elbow = results.poseLandmarks[14];
+                const wrist = results.poseLandmarks[16];
+                
+                // Visibility Check
+                if (shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5) {
+                    const angle = calculateAngle(
+                        [shoulder.x, shoulder.y],
+                        [elbow.x, elbow.y],
+                        [wrist.x, wrist.y]
+                    );
+
+                    // Update UI only if significantly changed to save DOM updates
+                    if (Math.round(angle) !== state.angle) {
+                        state.angle = Math.round(angle);
+                        els.angleDisplay.textContent = state.angle;
+                    }
+
+                    // --- PUSHUP LOGIC ---
+                    if (angle < 90) { // Down position
+                        stageLogic = "down";
+                        updateFeedback("Вверх!");
+                    }
+                    
+                    if (angle > 160 && stageLogic === "down") { // Up position completed
+                        stageLogic = "up";
+                        countLogic += 1;
+                        handleRep();
+                        updateFeedback("Отлично!");
+                    }
+
+                    if (stageLogic === null) {
+                        updateFeedback("Примите упор");
+                    } else if (angle > 160 && stageLogic !== "down") {
+                        updateFeedback("Опускайтесь...");
+                    }
+
+                    // Draw Skeleton Arm
+                    ctx.beginPath();
+                    ctx.moveTo(shoulder.x * els.canvas.width, shoulder.y * els.canvas.height);
+                    ctx.lineTo(elbow.x * els.canvas.width, elbow.y * els.canvas.height);
+                    ctx.lineTo(wrist.x * els.canvas.width, wrist.y * els.canvas.height);
+                    ctx.lineWidth = 5;
+                    ctx.strokeStyle = angle < 90 ? '#00ff00' : '#ffffff'; 
+                    ctx.stroke();
+
+                } else {
+                    updateFeedback("Встаньте в кадр");
+                }
+
+                // Standard MediaPipe Drawing
+                drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: 'rgba(255, 255, 255, 0.3)', lineWidth: 2 });
+                drawLandmarks(ctx, results.poseLandmarks, { color: 'rgba(0, 255, 255, 0.5)', lineWidth: 2, radius: 3 });
+            }
+            ctx.restore();
+        }
+
+        function startCamera() {
+            const pose = new Pose({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+            });
+
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                enableSegmentation: false,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5,
+            });
+
+            pose.onResults(onResults);
+
+            const camera = new Camera(els.video, {
+                onFrame: async () => {
+                    await pose.send({ image: els.video });
+                },
+                width: 640,
+                height: 480,
+            });
+            camera.start();
+        }
+
+        // --- UI HELPERS ---
+
+        function updateFeedback(text) {
+            if (state.feedback === text) return;
+            state.feedback = text;
+            
+            els.feedbackText.textContent = text;
+            
+            // Styles
+            els.feedbackPill.className = `px-6 py-2 rounded-full backdrop-blur-md border transition-all duration-300 ease-out transform `;
+            
+            if (text === "Отлично!") {
+                els.feedbackPill.className += "bg-green-500/20 border-green-500/50 text-green-300 scale-110";
+            } else if (text === "Вверх!") {
+                els.feedbackPill.className += "bg-yellow-500/20 border-yellow-500/50 text-yellow-300";
+            } else {
+                els.feedbackPill.className += "bg-white/10 border-white/10 text-gray-200";
+            }
+        }
+
+        function updateProgressUI() {
+            const pct = Math.min((state.dailyReps / state.dailyGoal) * 100, 100);
+            els.progressFill.style.width = `${pct}%`;
+            els.goalText.textContent = `ЦЕЛЬ НА ДЕНЬ: ${state.dailyReps} / ${state.dailyGoal}`;
+            els.totalRepsDisplay.textContent = state.totalLifetimeReps;
+        }
+
+        function renderUI() {
+            updateProgressUI();
+            renderAchievementsList();
+        }
+
+        function renderAchievementsList() {
+            els.achievementsList.innerHTML = '';
+            ACHIEVEMENTS.forEach(ach => {
+                const isUnlocked = state.unlockedAchievements.includes(ach.id);
+                const div = document.createElement('div');
+                div.className = `flex items-center p-4 rounded-xl border ${isUnlocked ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-gray-800 border-gray-700 opacity-50 grayscale'}`;
+                
+                div.innerHTML = `
+                    <div class="text-3xl mr-4 w-10 text-center">${ach.icon}</div>
+                    <div class="flex-1">
+                        <h3 class="font-bold ${isUnlocked ? 'text-yellow-100' : 'text-gray-400'}">${ach.title}</h3>
+                        <p class="text-xs text-gray-500">${ach.description}</p>
+                    </div>
+                    ${isUnlocked ? '<div class="text-yellow-500"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg></div>' : ''}
+                `;
+                els.achievementsList.appendChild(div);
+            });
+        }
+
+        // --- ACTIONS ---
+
+        function resetCounter() {
+            countLogic = 0;
+            state.count = 0;
+            stageLogic = null;
+            els.countDisplay.textContent = "0";
+            updateFeedback("Готов");
+        }
+
+        function toggleModal(id) {
+            const modal = document.getElementById(id);
+            if (modal.classList.contains('hidden')) {
+                modal.classList.remove('hidden');
+                if(id === 'awards-modal') renderAchievementsList();
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function setGoal(val) {
+            val = parseInt(val);
+            if (!val || val < 1) return;
+            
+            state.dailyGoal = val;
+            localStorage.setItem('dailyGoal', val.toString());
+            els.customGoalInput.value = val;
+            updateGoalButtons();
+            updateProgressUI();
+            
+            // Close modal logic if needed, or keep open
+            // toggleModal('goal-modal'); 
+        }
+
+        function updateGoalButtons() {
+            document.querySelectorAll('.goal-btn').forEach(btn => {
+                const btnVal = parseInt(btn.dataset.val);
+                if (btnVal === state.dailyGoal) {
+                    btn.className = "goal-btn py-3 rounded-lg font-bold transition-colors bg-blue-600 text-white";
+                } else {
+                    btn.className = "goal-btn py-3 rounded-lg font-bold transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600";
+                }
+            });
+        }
+
+        // Start
+        init();
+    </script>
 </body>
 </html>
